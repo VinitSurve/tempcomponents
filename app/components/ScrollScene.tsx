@@ -20,6 +20,8 @@ const DRIVE_TOTAL_FRAMES = 240;
 const CSMT_PHASE_END = 0.4;
 const SCENE_SCROLL_HEIGHT_VH = 560;
 const MEDIA_CDN_BASE = "https://cdn.jsdelivr.net/gh/VinitSurve/media@main";
+const SCROLL_SMOOTHING = 0.18;
+const UI_PROGRESS_FPS = 30;
 
 const CSMT_FRAME_PATH = (i: number) =>
   `${MEDIA_CDN_BASE}/frame_${String(i).padStart(4, "0")}.webp`;
@@ -172,7 +174,8 @@ function useCanvasRenderer(
   progressRef: RefObject<number>,
   isLoaded: boolean
 ) {
-  const lastRenderKey = useRef("");
+  const lastDrawnProgress = useRef(-1);
+  const lastDrawnScene = useRef<SceneName | null>(null);
 
   const drawFrame = useCallback(
     (force = false) => {
@@ -187,23 +190,25 @@ function useCanvasRenderer(
       if (!activeFrames.length) return;
 
       const totalFrames = activeFrames.length;
-      const frameIndex = Math.min(
-        totalFrames - 1,
-        Math.floor(localProgress * totalFrames)
-      );
+      const exactFrame = localProgress * (totalFrames - 1);
+      const baseIndex = Math.floor(exactFrame);
+      const nextIndex = Math.min(totalFrames - 1, baseIndex + 1);
+      const blendProgress = exactFrame - baseIndex;
 
-      const img = activeFrames[frameIndex];
-      if (!img || !img.complete || !img.naturalWidth) return;
+      const baseImg = activeFrames[baseIndex];
+      const nextImg = activeFrames[nextIndex];
+      if (!baseImg || !baseImg.complete || !baseImg.naturalWidth) return;
+
+      const delta = Math.abs(progress - lastDrawnProgress.current);
+      if (!force && scene === lastDrawnScene.current && delta < 0.0004) {
+        return;
+      }
+      lastDrawnProgress.current = progress;
+      lastDrawnScene.current = scene;
 
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = window.innerWidth;
       const h = window.innerHeight;
-
-      const gradeBucket = Math.round(progress * 240);
-      const driftBucket = Math.round(localProgress * 240);
-      const renderKey = `${scene}-${frameIndex}-${w}-${h}-${gradeBucket}-${driftBucket}`;
-      if (!force && renderKey === lastRenderKey.current) return;
-      lastRenderKey.current = renderKey;
 
       if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
         canvas.width = w * dpr;
@@ -213,7 +218,7 @@ function useCanvasRenderer(
       }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      const imgRatio = img.naturalWidth / img.naturalHeight;
+      const imgRatio = baseImg.naturalWidth / baseImg.naturalHeight;
       const canvasRatio = w / h;
       let drawW: number, drawH: number, drawX: number, drawY: number;
 
@@ -231,7 +236,7 @@ function useCanvasRenderer(
 
       if (scene === "drive") {
         const zoom = 1 + 0.05 * easeOutCubic(localProgress);
-        const drift = Math.sin(localProgress * Math.PI * 4) * (w * 0.012);
+        const drift = Math.sin(localProgress * Math.PI * 4) * (w * 0.009);
         drawW *= zoom;
         drawH *= zoom;
         drawX = (w - drawW) / 2 + drift;
@@ -246,68 +251,19 @@ function useCanvasRenderer(
       }
 
       ctx.clearRect(0, 0, w, h);
-      ctx.drawImage(img, drawX, drawY, drawW, drawH);
+      ctx.globalAlpha = 1;
+      ctx.drawImage(baseImg, drawX, drawY, drawW, drawH);
 
-      const warmStrength = clamp01(1 - progress / CSMT_PHASE_END);
-      const neutralStrength = clamp01(
-        1 - Math.abs((progress - CSMT_PHASE_END) / 0.18)
-      );
-      const coolStrength = clamp01((progress - 0.55) / 0.45);
-      const fogStrength = clamp01((progress - 0.32) / 0.38);
-      const reflectionStrength =
-        scene === "drive" ? easeInOutSine(localProgress) : 0;
-
-      ctx.globalCompositeOperation = "soft-light";
-      if (warmStrength > 0) {
-        const warmGradient = ctx.createLinearGradient(0, 0, w, h);
-        warmGradient.addColorStop(0, `rgba(246,171,82,${0.22 * warmStrength})`);
-        warmGradient.addColorStop(1, `rgba(168,114,38,${0.14 * warmStrength})`);
-        ctx.fillStyle = warmGradient;
-        ctx.fillRect(0, 0, w, h);
+      if (
+        blendProgress > 0.001 &&
+        nextImg &&
+        nextImg.complete &&
+        nextImg.naturalWidth
+      ) {
+        ctx.globalAlpha = blendProgress;
+        ctx.drawImage(nextImg, drawX, drawY, drawW, drawH);
+        ctx.globalAlpha = 1;
       }
-
-      if (neutralStrength > 0) {
-        const neutralGradient = ctx.createLinearGradient(0, 0, 0, h);
-        neutralGradient.addColorStop(
-          0,
-          `rgba(192,205,221,${0.08 * neutralStrength})`
-        );
-        neutralGradient.addColorStop(1, `rgba(111,128,149,${0.1 * neutralStrength})`);
-        ctx.fillStyle = neutralGradient;
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      if (coolStrength > 0) {
-        const coolGradient = ctx.createLinearGradient(0, 0, w, h);
-        coolGradient.addColorStop(0, `rgba(87,128,189,${0.16 * coolStrength})`);
-        coolGradient.addColorStop(1, `rgba(61,98,158,${0.26 * coolStrength})`);
-        ctx.fillStyle = coolGradient;
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      if (fogStrength > 0) {
-        ctx.globalCompositeOperation = "screen";
-        const fogGradient = ctx.createLinearGradient(0, h * 0.08, 0, h);
-        fogGradient.addColorStop(0, `rgba(176,192,214,${0.07 * fogStrength})`);
-        fogGradient.addColorStop(0.65, `rgba(122,150,188,${0.12 * fogStrength})`);
-        fogGradient.addColorStop(1, `rgba(80,112,156,${0.24 * fogStrength})`);
-        ctx.fillStyle = fogGradient;
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      if (reflectionStrength > 0) {
-        ctx.globalCompositeOperation = "screen";
-        const reflectionGradient = ctx.createLinearGradient(0, h * 0.45, 0, h);
-        reflectionGradient.addColorStop(0, `rgba(145,188,248,0)`);
-        reflectionGradient.addColorStop(
-          1,
-          `rgba(167,208,255,${0.26 * reflectionStrength})`
-        );
-        ctx.fillStyle = reflectionGradient;
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      ctx.globalCompositeOperation = "source-over";
     },
     [canvasRef, csmtFrames, driveFrames, progressRef]
   );
@@ -364,7 +320,8 @@ function getBeatOpacity(progress: number, beat: StoryBeat): number {
 export default function ScrollScene() {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const progressRef = useRef(0);
+  const targetProgressRef = useRef(0);
+  const smoothedProgressRef = useRef(0);
   const [progress, setProgress] = useState(0);
 
   const { scrollYProgress } = useScroll({
@@ -373,14 +330,42 @@ export default function ScrollScene() {
   });
 
   useMotionValueEvent(scrollYProgress, "change", (latest) => {
-    const clamped = clamp01(latest);
-    progressRef.current = clamped;
-    setProgress(clamped);
+    targetProgressRef.current = clamp01(latest);
   });
+
+  useEffect(() => {
+    let rafId = 0;
+    let lastUiCommit = 0;
+
+    const tick = (now: number) => {
+      const target = targetProgressRef.current;
+      const prev = smoothedProgressRef.current;
+      const next = prev + (target - prev) * SCROLL_SMOOTHING;
+      const settled = Math.abs(target - next) < 0.0003 ? target : next;
+
+      smoothedProgressRef.current = settled;
+
+      if (now - lastUiCommit >= 1000 / UI_PROGRESS_FPS) {
+        setProgress(settled);
+        lastUiCommit = now;
+      }
+
+      rafId = window.requestAnimationFrame(tick);
+    };
+
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, []);
 
   const { loaded, percent, csmtFrames, driveFrames } = useFramePreloader();
 
-  useCanvasRenderer(canvasRef, csmtFrames, driveFrames, progressRef, loaded);
+  useCanvasRenderer(
+    canvasRef,
+    csmtFrames,
+    driveFrames,
+    smoothedProgressRef,
+    loaded
+  );
 
   const activeBeat = getActiveStoryBeat(progress);
   const beatOpacity = activeBeat ? getBeatOpacity(progress, activeBeat) : 0;
@@ -411,6 +396,12 @@ export default function ScrollScene() {
     activeScene.scene === "drive"
       ? 0.42 + activeScene.localProgress * 0.18
       : 0.36 + progress * 0.12;
+
+  const fogOpacity = clamp01((progress - 0.34) / 0.44) * 0.34;
+  const reflectionOpacity =
+    activeScene.scene === "drive"
+      ? 0.08 + easeInOutSine(activeScene.localProgress) * 0.24
+      : 0;
 
   return (
     <>
@@ -443,6 +434,8 @@ export default function ScrollScene() {
         />
 
         <div className="canvas-grade-shift" style={gradeOverlayStyle} />
+        <div className="canvas-fog" style={{ opacity: fogOpacity }} />
+        <div className="canvas-reflection" style={{ opacity: reflectionOpacity }} />
         <div className="canvas-vignette" style={{ opacity: vignetteOpacity }} />
         <div className="canvas-top-fade" />
         <div className="canvas-bottom-fade" />
