@@ -19,11 +19,12 @@ const CSMT_TOTAL_FRAMES = 240;
 const DRIVE_TOTAL_FRAMES = 240;
 const CSMT_PHASE_END = 0.4;
 const SCENE_SCROLL_HEIGHT_VH = 560;
+const MEDIA_CDN_BASE = "https://cdn.jsdelivr.net/gh/VinitSurve/media@main";
 
 const CSMT_FRAME_PATH = (i: number) =>
-  `/frames/frame_${String(i).padStart(4, "0")}.webp`;
+  `${MEDIA_CDN_BASE}/frame_${String(i).padStart(4, "0")}.webp`;
 const DRIVE_FRAME_PATH = (i: number) =>
-  `/drive_frames/drive_${String(i).padStart(4, "0")}.webp`;
+  `${MEDIA_CDN_BASE}/drive_${String(i).padStart(4, "0")}.webp`;
 
 interface StoryBeat {
   id: string;
@@ -118,6 +119,7 @@ function useFramePreloader() {
 
     for (let i = 0; i < CSMT_TOTAL_FRAMES; i++) {
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.decoding = "async";
       img.loading = "eager";
       img.src = CSMT_FRAME_PATH(i + 1);
@@ -128,6 +130,7 @@ function useFramePreloader() {
 
     for (let i = 0; i < DRIVE_TOTAL_FRAMES; i++) {
       const img = new Image();
+      img.crossOrigin = "anonymous";
       img.decoding = "async";
       img.loading = "eager";
       img.src = DRIVE_FRAME_PATH(i + 1);
