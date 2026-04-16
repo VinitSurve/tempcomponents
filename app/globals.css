@@ -87,13 +87,12 @@ body {
   align-items: center;
   justify-content: center;
   background: var(--deep-navy);
-  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
-              visibility 0.8s;
+  transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity;
 }
 
 .loader-container.loaded {
   opacity: 0;
-  visibility: hidden;
   pointer-events: none;
 }
 

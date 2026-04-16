@@ -32,10 +32,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} antialiased`}>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="dns-prefetch" href="//cdn.jsdelivr.net" />
         <link
           rel="preconnect"
-          href="https://fonts.gstatic.com"
+          href="https://cdn.jsdelivr.net"
           crossOrigin="anonymous"
         />
       </head>
